@@ -1,67 +1,70 @@
+import os
 import random
 import requests
 import tweepy
-import os
 
-# Twitter authentication
-client = tweepy.Client(
-    consumer_key=os.getenv("API_KEY"),
-    consumer_secret=os.getenv("API_SECRET"),
-    access_token=os.getenv("ACCESS_TOKEN"),
-    access_token_secret=os.getenv("ACCESS_TOKEN_SECRET")
+# -----------------------
+# Twitter Authentication
+# -----------------------
+auth = tweepy.OAuth1UserHandler(
+    os.getenv("API_KEY"),
+    os.getenv("API_SECRET"),
+    os.getenv("ACCESS_TOKEN"),
+    os.getenv("ACCESS_TOKEN_SECRET")
 )
+api = tweepy.API(auth)
 
-# Homestuck unofficial API
-API_URL = "https://api.homestuck.net/v1"
+# Test auth
+try:
+    api.verify_credentials()
+    print("Authentication OK")
+except Exception as e:
+    print("Error during authentication:", e)
 
-def get_random_page():
-    story = requests.get(f"{API_URL}/story").json()
+# -----------------------
+# Homestuck Panel Info
+# -----------------------
+BASE_URL = "https://storage.homestuck.com/story/homestuck/media/images/panels/"
 
-    # Filter Homestuck pages
-    pages = [p for p in story if p["story"] == "homestuck"]
+# Example acts with page counts (update to actual counts)
+ACTS = {
+    "act-1": 31,
+    "act-2": 25,
+    "act-3": 50,
+}
 
-    page = random.choice(pages)
+def get_random_panel():
+    act = random.choice(list(ACTS.keys()))
+    page_num = random.randint(1, ACTS[act])
+    page_str = str(page_num).zfill(5)
 
-    page_id = page["pageId"]
-    title = page["title"]
+    # Check for valid image extension
+    for ext in [".gif", ".png", ".jpg"]:
+        url = f"{BASE_URL}{act}/{page_str}{ext}"
+        response = requests.head(url)
+        if response.status_code == 200:
+            return act, page_num, url
+    return None, None, None
 
-    media = page.get("media", [])
-    img_url = None
-
-    for m in media:
-        if m.endswith(".png") or m.endswith(".gif") or m.endswith(".jpg"):
-            img_url = m
-            break
-
-    return page_id, title, img_url
-
-
-def post_tweet():
-    page_id, title, img_url = get_random_page()
-
-    if not img_url:
+# -----------------------
+# Post to Twitter/X
+# -----------------------
+def post_panel():
+    act, page_num, url = get_random_panel()
+    if not url:
+        print("No valid panel found.")
         return
 
-    img_data = requests.get(img_url).content
-
+    # Download image
+    img_data = requests.get(url).content
     with open("panel.png", "wb") as f:
         f.write(img_data)
 
-    auth = tweepy.OAuth1UserHandler(
-        os.getenv("API_KEY"),
-        os.getenv("API_SECRET"),
-        os.getenv("ACCESS_TOKEN"),
-        os.getenv("ACCESS_TOKEN_SECRET")
-    )
-
-    api = tweepy.API(auth)
-
+    # Upload and tweet
     media = api.media_upload("panel.png")
-
-    tweet_text = f"Page {page_id}: {title}"
-
-    client.create_tweet(text=tweet_text, media_ids=[media.media_id])
-
+    tweet_text = f"Page {page_num}: {act.replace('-', ' ').title()}"
+    api.update_status(status=tweet_text, media_ids=[media.media_id])
+    print(f"Posted: {tweet_text}")
 
 if __name__ == "__main__":
-    post_tweet()
+    post_panel()
